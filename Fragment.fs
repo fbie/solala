@@ -1,51 +1,53 @@
-module Fragment
+namespace Solala
 
-/// An entity
-type Entity =
-    | Applicant
-    | Child
+module Fragment =
 
-type Const =
-    | String of string
-    | Number of float
+    /// An entity
+    type Entity =
+        | Applicant
+        | Child
 
-type Documentation =
-    | MedicalStatement
-    | BankStatement
-    | Receipts
-    | Probable
+    type Const =
+        | String of string
+        | Number of float
 
-type Property =
-    | Entity of Entity
-    | Step of Variant * string
+    type Documentation =
+        | MedicalStatement
+        | BankStatement
+        | Receipts
+        | Probable
 
-and Variant =
-    | Const of Const
-    | Property of Property
+    type Property =
+        | Entity of Entity
+        | Step of Variant * string
 
-and Predicate =
-    | Requires of Documentation
-    | Equals of Variant * Variant
-    | NotEquals of Variant * Variant
-    | LessThan of Variant * Variant
-    | GreaterThan of Variant * Variant
-    | In of Variant * Variant list
-    | NotIn of Variant * Variant list
-    | Exhausted of string list // Refrences to other laws - should be a proper reference to a definition!w
+    and Variant =
+        | Const of Const
+        | Property of Property
 
-type Assertion =
-    { anchor: string; predicate: Predicate } // Factual condition.
+    and Predicate =
+        | Requires of Documentation
+        | Equals of Variant * Variant
+        | NotEquals of Variant * Variant
+        | LessThan of Variant * Variant
+        | GreaterThan of Variant * Variant
+        | In of Variant * Variant list
+        | NotIn of Variant * Variant list
+        | Exhausted of string list // Refrences to other laws - should be a proper reference to a definition!w
 
-type Judgement = { anchor: string } // Judgement by the municipality.
+    type Assertion =
+        { anchor: string; predicate: Predicate } // Factual condition.
 
-type Condition =
-    | Assertion of Assertion
-    | Judgement of Judgement
-    | And of Condition list
-    | Or of Condition list
-    | Not of Condition
+    type Judgement = { anchor: string } // Judgement by the municipality.
 
-type t =
-    { anchor: string
-      benefit: string
-      condition: Condition }
+    type Condition =
+        | Assertion of Assertion
+        | Judgement of Judgement
+        | And of Condition list
+        | Or of Condition list
+        | Not of Condition
+
+    type t =
+        { anchor: string
+          benefit: string
+          condition: Condition }
