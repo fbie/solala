@@ -22,7 +22,10 @@ module Sugar =
     let receipt = Receipts
     let probable = Probable
 
-    let requires documentation = Requires documentation
+    let requires anchor documentation =
+        Assertion
+            { anchor = anchor
+              predicate = Requires documentation }
 
     let (%&) a b = And [ a; b ]
     let (%|) a b = Or [ a; b ]

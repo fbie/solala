@@ -44,7 +44,7 @@ module Sugar =
     val exhausted: string list -> Predicate
 
     /// Require documentation of some form.
-    val requires: Documentation -> Predicate
+    val requires: string -> Documentation -> Condition
 
     /// Require that both conditions are met.
     val (%&): Condition -> Condition -> Condition
