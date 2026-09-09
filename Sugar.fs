@@ -2,8 +2,8 @@ module Sugar
 
 open Fragment
 
-let applicant = Entity Applicant
-let child = Entity Child
+let applicant = Property(Entity Applicant)
+let child = Property(Entity Child)
 
 let s s : Variant = Const(String s)
 let n f : Variant = Const(Number f)
@@ -26,7 +26,7 @@ let (%&) a b = And [ a; b ]
 let (%|) a b = Or [ a; b ]
 let not_ a = Not a
 let in_ x xs = In(x, xs)
-let notIn x xs = NotIn xs
+let notIn x xs = NotIn(x, xs)
 let exhausted xs = Exhausted xs
 
 let assertion anchor predicate : Condition =
