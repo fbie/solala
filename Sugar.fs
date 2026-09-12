@@ -12,11 +12,6 @@ module Sugar =
 
     let (%->) a b = Property(Step(a, b))
 
-    let (%=) a b = Equals(a, b)
-    let (%<>) a b = NotEquals(a, b)
-    let (%<) a b = LessThan(a, b)
-    let (%>) a b = GreaterThan(a, b)
-
     let medicalStatement = MedicalStatement
     let bankStatement = BankStatement
     let receipt = Receipts
