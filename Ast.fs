@@ -82,7 +82,7 @@ module Value =
 
 module Ast =
     (**
-    define symbol child Barnet. -- Already defined, do not query.
+    define symbol child Barnet. -- Already defined, do not query, its value is "true".
     define symbol applicant Ansøger.
 
     define assertion is_guardian guardian of child equals applicant. -- Comparison of properties, query for nested property.
@@ -91,7 +91,7 @@ module Ast =
     define benefit some_name
       provides Kompensation af kørselsudgifter
       requires
-        is_guardian and permanent_handicap
+        is_guardian and permanent_handicap.
 
 
 *)
@@ -158,8 +158,14 @@ module Continuation =
 module Eval =
     open Ast
 
+    type t =
+        | Success
+        | Discretional of string
+        | Failure of string
+
     let cont = Continuation.cont
     let query = Continuation.query
+    let (>>=) = Continuation.(>>=)
 
     let evalRef { typ = typ; path = path } : Continuation.t<Value.t, _> = query (Type.concreteType typ) path
 
@@ -171,11 +177,10 @@ module Eval =
     let rec evalPredicate: Predicate -> _ =
         function
         | Exists reference ->
-            cont {
-                match! evalRef reference with
-                | Value.Bool b -> return b
-                | _ -> return false // TODO Type mismatch?
-            }
+            evalRef reference
+            >>= function
+                | Value.Bool b -> cont { return b }
+                | _ -> failwith "Unexpected: reference not of type boolean"
 
         | Not p ->
             cont {
@@ -225,3 +230,12 @@ module Eval =
                 let! b = evalVariant b
                 return a > b
             }
+
+    let evalCondition =
+        function
+        | Assertion { description = d; assertion = a } ->
+            cont {
+                let! b = evalPredicate a
+                return if b then Success else Failure d
+            }
+        | Judgment { description = description } -> cont { return Discretional description }
