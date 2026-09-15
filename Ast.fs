@@ -1,5 +1,85 @@
 namespace Solala
 
+module Type =
+    type TypeVar = { label: string; mutable parent: t }
+
+    and t =
+        | Bool
+        | Int
+        | String
+        | Date
+        | List of t
+        | Var of TypeVar
+
+    exception RuntimeTypeError of string
+
+    let genTypeVar =
+        let mutable i = 0L
+
+        fun () ->
+            let j = i
+            i <- i + 1L
+
+            let rec tvar =
+                Var
+                    { label = $"typevar-{j}"
+                      parent = tvar }
+
+            tvar
+
+    let union t1 t2 =
+        let find t =
+            let mutable depth = 0
+
+            let rec find =
+                function
+                | Var tvar ->
+                    let t = find tvar.parent
+                    depth <- depth + 1
+                    tvar.parent <- t
+                    t
+                | t -> t in
+
+            find t, depth in
+
+        match t1, t2 with
+        | t1, t2 when t1 = t2 -> t1
+        | Var tvar1, Var tvar2 ->
+            let p1, d1 = find tvar1.parent
+            let p2, d2 = find tvar2.parent
+
+            if d1 < d2 then
+                tvar2.parent <- p1
+                p1
+            else
+                tvar1.parent <- p2
+                p2
+        | Var tvar, t
+        | t, Var tvar ->
+            tvar.parent <- t
+            t
+        | _ -> failwith "Type mismatch!"
+
+    let rec concreteType =
+        function
+        | Var { parent = t } as tvar ->
+            if obj.Equals(t, tvar) then
+                failwith "Could not infer concrete type"
+
+            concreteType t
+        | t -> t
+
+module Value =
+    type t =
+        | Bool of bool
+        | Int of int
+        | String of string
+        | Date of System.DateOnly
+        | List of t list
+
+    let _true = Bool true
+    let _false = Bool false
+
 module Ast =
     (**
     define symbol child Barnet. -- Already defined, do not query.
@@ -17,25 +97,23 @@ module Ast =
 *)
     type Symbol = { name: string; description: string }
 
-    type Of = { reference: Ref; property: string }
+    type Ref =
+        { mutable typ: Type.t
+          path: string list } // Infer types!
 
-    and Ref =
-        | Ref of string
-        | Of of Of
-
-    type Const =
-        | String of string
-        | Int of int
-        | Date of System.DateTime
+    type Variant =
+        | Const of Value.t
+        | Ref of Ref
 
     type Predicate =
-        | Exists of Ref
-        | Not of Predicate
-        | And of Predicate * Predicate
-        | Or of Predicate * Predicate
-        | Equals of Ref * Ref
-        | LessThan of Ref * Ref
-        | GreaterThan of Ref * Ref // <>, <= and >= are sugar.
+        | Exists of Ref // t -> bool
+        | Not of Predicate // bool -> bool
+        | And of Predicate * Predicate // t * t -> bool
+        | Or of Predicate * Predicate // t * t -> bool
+        | Equals of Variant * Variant // t * t -> bool
+        | LessThan of Variant * Variant // t * t -> bool
+        | GreaterThan of Variant * Variant // t * t -> bool
+        | In of Variant * Variant // t * t list -> bool
 
     type Judgment = { description: string }
 
@@ -52,46 +130,26 @@ module Ast =
           provides: string
           requires: Condition list }
 
-module Existential =
-    type E =
-        abstract member Apply: 'a F -> 'a
-
-    and 'a F =
-        abstract member Apply: 'x -> 'a
-
-    let e x : E =
-        { new E with
-            member _.Apply f = f.Apply x }
-
-    let just x : 'a F =
-        { new F<'a> with
-            member _.Apply _ = x }
-
-    let apply (f: 'a F) (e: E) : 'a = e.Apply f
-
 module Continuation =
-    type 'a t =
+    type t<'a, 'b> =
         | Value of 'a
-        | Query of string * 'a t Existential.F
+        | Query of string list * Type.t * ('b -> t<'a, 'b>)
 
     let value x = Value x
-    let query label k = Query(label, k)
 
-    let rec bind (f: 'a -> 'b t) : 'a t -> 'b t =
+    let query<'a> typ path =
+        Query(path, typ, fun (x: 'a) -> Value x)
+
+    let rec bind (f: 'c -> t<'a, 'b>) : t<'c, 'b> -> t<'a, 'b> =
         function
         | Value x -> f x
-        | Query(s, k) ->
-            Query(
-                s,
-                { new Existential.F<'b t> with
-                    member _.Apply x = bind f (k.Apply x) }
-            )
+        | Query(s, typ, k) -> Query(s, typ, fun x -> bind f (k x))
 
     let inline (>>=) m f = bind f m
 
     type ContinuationBuilder private () =
         member _.Bind(m, f) = bind f m
-        member _.Return(x: 'a) : 'a t = Value x
+        member _.Return(x: 'a) : t<'a, _> = Value x
         member _.ReturnFrom x = x
         static member val Instance = ContinuationBuilder()
 
@@ -99,17 +157,71 @@ module Continuation =
 
 module Eval =
     open Ast
-    open Continuation
 
-    let just x = Existential.just (Continuation.value x)
+    let cont = Continuation.cont
+    let query = Continuation.query
 
-    let rec evalRef: Ref -> unit Continuation.t =
+    let evalRef { typ = typ; path = path } : Continuation.t<Value.t, _> = query (Type.concreteType typ) path
+
+    let evalVariant =
         function
-        | Ref name -> query name (just ())
-        | Of { reference = r; property = p } ->
+        | Const value -> cont { return value }
+        | Ref reference -> evalRef reference
+
+    let rec evalPredicate: Predicate -> _ =
+        function
+        | Exists reference ->
             cont {
-                do! evalRef r
-                return! query p (just ())
+                match! evalRef reference with
+                | Value.Bool b -> return b
+                | _ -> return false // TODO Type mismatch?
             }
 
-// let rec evalPredicate
+        | Not p ->
+            cont {
+                let! b = evalPredicate p
+                return not b
+            }
+
+        | And(a, b) ->
+            cont {
+                let! a = evalPredicate a
+                if a then return! evalPredicate b else return false // Only evaluate b if a holds.
+            }
+
+        | Or(a, b) ->
+            cont {
+                let! a = evalPredicate a
+                if a then return true else return! evalPredicate b
+            }
+
+        | In(x, xs) ->
+            cont {
+                let! x = evalVariant x
+                let! xs = evalVariant xs
+
+                match xs with
+                | Value.List xs -> return List.contains x xs
+                | _ -> return false //! raise (Type.RuntimeTypeError "Expected a list")
+            }
+
+        | Equals(a, b) ->
+            cont {
+                let! a = evalVariant a
+                let! b = evalVariant b
+                return a = b
+            }
+
+        | LessThan(a, b) ->
+            cont {
+                let! a = evalVariant a
+                let! b = evalVariant b
+                return a < b
+            }
+
+        | GreaterThan(a, b) ->
+            cont {
+                let! a = evalVariant a
+                let! b = evalVariant b
+                return a > b
+            }
