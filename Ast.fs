@@ -158,11 +158,6 @@ module Continuation =
 module Eval =
     open Ast
 
-    type t =
-        | Success
-        | Discretional of string
-        | Failure of string
-
     let cont = Continuation.cont
     let query = Continuation.query
     let (>>=) = Continuation.(>>=)
@@ -231,6 +226,11 @@ module Eval =
                 return a > b
             }
 
+    type Result =
+        | Success
+        | Failure of string
+        | Discretional of string
+
     let evalCondition =
         function
         | Assertion { description = d; assertion = a } ->
@@ -239,3 +239,28 @@ module Eval =
                 return if b then Success else Failure d
             }
         | Judgment { description = description } -> cont { return Discretional description }
+
+    type EligibilityConditions =
+        { discretionals: string list
+          failures: string list }
+
+    let evalBenefit { requires = rqs } : Continuation.t<EligibilityConditions, _>=
+        let conditions = cont { return { discretionals = []; failures = [] } }
+
+        let cons conds cond =
+            cont {
+                let! (conds: EligibilityConditions) = conds
+
+                match! evalCondition cond with
+                | Success -> return conds
+                | Failure descr ->
+                    return
+                        { conds with
+                            failures = descr :: conds.failures }
+                | Discretional descr ->
+                    return
+                        { conds with
+                            discretionals = descr :: conds.discretionals }
+            }
+
+        List.fold cons conditions rqs
