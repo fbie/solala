@@ -80,6 +80,24 @@ module Value =
     let _true = Bool true
     let _false = Bool false
 
+    let b b = if b then _true else _false
+
+    let isTrue =
+        function
+        | Bool false
+        | List [] -> false
+        | _ -> true // False and empty list are false values, everything else is true
+
+    let isFalse = isTrue >> not
+
+    let band a b =
+        if isTrue a && isTrue b then _true else _false
+
+    let bor a b =
+        if isFalse a && isFalse b then _false else _true
+
+    let bnot a = if isTrue a then _false else _true
+
 module Ast =
     (**
     define symbol child Barnet. -- Already defined, do not query, its value is "true".
@@ -97,50 +115,52 @@ module Ast =
 *)
     type Symbol = { name: string; description: string }
 
-    type Ref =
-        { mutable typ: Type.t
-          path: string list } // Infer types!
+    type 't Ref = { typ: 't; path: string list } // Infer types!
 
-    type Variant =
+    type Unary = Not
+
+    type Binary =
+        | And
+        | Or
+        | Equals
+        | LessThan
+        | In // x > y => y < x
+
+    type 't Expression =
         | Const of Value.t
-        | Ref of Ref
-
-    type Predicate =
-        | Exists of Ref // t -> bool
-        | Not of Predicate // bool -> bool
-        | And of Predicate * Predicate // t * t -> bool
-        | Or of Predicate * Predicate // t * t -> bool
-        | Equals of Variant * Variant // t * t -> bool
-        | LessThan of Variant * Variant // t * t -> bool
-        | GreaterThan of Variant * Variant // t * t -> bool
-        | In of Variant * Variant // t * t list -> bool
+        | Ref of 't Ref
+        | ApplyUnary of Unary * 't Expression
+        | ApplyBinary of Binary * 't Expression * 't Expression
 
     type Judgment = { description: string }
 
-    type Assertion =
-        { assertion: Predicate
+    type 't Assertion =
+        { assertion: 't Expression
           description: string }
 
-    type Condition =
+    type 't Condition =
         | Judgment of Judgment
-        | Assertion of Assertion
+        | Assertion of 't Assertion
 
-    type Benefit =
+    type 't Benefit =
         { description: string
           provides: string
-          requires: Condition list }
+          requires: 't Condition list }
+
+// let typeRef types = function
+//     | Ref { typ = typ; path = path; }
 
 module Continuation =
     type t<'a, 'b> =
-        | Value of 'a
-        | Query of string list * Type.t * ('b -> t<'a, 'b>)
+        | Value of 'b
+        | Query of string list * Type.t * ('a -> t<'a, 'b>)
 
     let value x = Value x
 
     let query<'a> typ path =
         Query(path, typ, fun (x: 'a) -> Value x)
 
-    let rec bind (f: 'c -> t<'a, 'b>) : t<'c, 'b> -> t<'a, 'b> =
+    let rec bind (f: 'd -> t<'a, 'b>) : t<'a, 'd> -> t<'a, 'b> =
         function
         | Value x -> f x
         | Query(s, typ, k) -> Query(s, typ, fun x -> bind f (k x))
@@ -149,8 +169,9 @@ module Continuation =
 
     type ContinuationBuilder private () =
         member _.Bind(m, f) = bind f m
-        member _.Return(x: 'a) : t<'a, _> = Value x
+        member _.Return(x: 'a) : t<_, 'a> = Value x
         member _.ReturnFrom x = x
+        member _.Zero() = Value Value._false
         static member val Instance = ContinuationBuilder()
 
     let cont = ContinuationBuilder.Instance
@@ -162,68 +183,51 @@ module Eval =
     let query = Continuation.query
     let (>>=) = Continuation.(>>=)
 
-    let evalRef { typ = typ; path = path } : Continuation.t<Value.t, _> = query (Type.concreteType typ) path
+    let evalRef { typ = typ; path = path } : Continuation.t<Value.t, Value.t> = query (Type.concreteType typ) path
 
-    let evalVariant =
+    let rec evalExpr: _ Expression -> _ =
         function
-        | Const value -> cont { return value }
         | Ref reference -> evalRef reference
 
-    let rec evalPredicate: Predicate -> _ =
-        function
-        | Exists reference ->
-            evalRef reference
-            >>= function
-                | Value.Bool b -> cont { return b }
-                | _ -> failwith "Unexpected: reference not of type boolean"
+        | Const value -> cont { return value }
 
-        | Not p ->
+        | ApplyUnary(Not, e) ->
             cont {
-                let! b = evalPredicate p
-                return not b
+                let! b = evalExpr e
+                return Value.bnot b
             }
 
-        | And(a, b) ->
+        | ApplyBinary(op, e1, e2) ->
             cont {
-                let! a = evalPredicate a
-                if a then return! evalPredicate b else return false // Only evaluate b if a holds.
-            }
+                match op with
+                | Equals ->
+                    let! v1 = evalExpr e1
+                    let! v2 = evalExpr e2
+                    return Value.b (v1 = v2)
 
-        | Or(a, b) ->
-            cont {
-                let! a = evalPredicate a
-                if a then return true else return! evalPredicate b
-            }
+                | And ->
+                    let! b = evalExpr e1
+                    if Value.isTrue b then return! evalExpr e2
 
-        | In(x, xs) ->
-            cont {
-                let! x = evalVariant x
-                let! xs = evalVariant xs
+                | Or ->
+                    match! evalExpr e1 with
+                    | Value.Bool false -> return! evalExpr e2
+                    | v -> return v
 
-                match xs with
-                | Value.List xs -> return List.contains x xs
-                | _ -> return false //! raise (Type.RuntimeTypeError "Expected a list")
-            }
+                | LessThan ->
+                    let! v1 = evalExpr e1
+                    let! v2 = evalExpr e2
 
-        | Equals(a, b) ->
-            cont {
-                let! a = evalVariant a
-                let! b = evalVariant b
-                return a = b
-            }
+                    match v1, v2 with
+                    | Value.Date d1, Value.Date d2 -> return Value.b (d1 < d2)
+                    | Value.Int i1, Value.Int i2 -> return Value.b (i1 < i2)
+                    | _ -> ()
 
-        | LessThan(a, b) ->
-            cont {
-                let! a = evalVariant a
-                let! b = evalVariant b
-                return a < b
-            }
-
-        | GreaterThan(a, b) ->
-            cont {
-                let! a = evalVariant a
-                let! b = evalVariant b
-                return a > b
+                | In ->
+                    let! v = evalExpr e1
+                    match! evalExpr e2 with
+                    | Value.List vs -> return Value.b (List.contains v vs)
+                    | _ -> ()
             }
 
     type Result =
@@ -235,8 +239,8 @@ module Eval =
         function
         | Assertion { description = d; assertion = a } ->
             cont {
-                let! b = evalPredicate a
-                return if b then Success else Failure d
+                let! b = evalExpr a
+                return if Value.isTrue b then Success else Failure d
             }
         | Judgment { description = description } -> cont { return Discretional description }
 
@@ -244,7 +248,7 @@ module Eval =
         { discretionals: string list
           failures: string list }
 
-    let evalBenefit { requires = rqs } : Continuation.t<EligibilityConditions, _>=
+    let evalBenefit { requires = rqs } : Continuation.t<EligibilityConditions, _> =
         let conditions = cont { return { discretionals = []; failures = [] } }
 
         let cons conds cond =
