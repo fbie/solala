@@ -155,7 +155,7 @@ module Continuation =
         | Value of 'b
         | Query of string list * Type.t * ('a -> t<'a, 'b>)
 
-    let value x = Value x
+    let value<'a, 'b> (x: 'b) : t<'a, 'b> = Value x
 
     let query<'a> typ path =
         Query(path, typ, fun (x: 'a) -> Value x)
@@ -170,7 +170,7 @@ module Continuation =
     type ContinuationBuilder private () =
         member _.Bind(m, f) = bind f m
         member _.Return(x: 'a) : t<_, 'a> = Value x
-        member _.ReturnFrom x = x
+        member _.ReturnFrom(x: t<_, _>) : t<_, _> = x
         member _.Zero() = Value Value._false
         static member val Instance = ContinuationBuilder()
 
@@ -207,7 +207,9 @@ module Eval =
 
                 | And ->
                     let! b = evalExpr e1
-                    if Value.isTrue b then return! evalExpr e2
+
+                    if Value.isTrue b then
+                        return! evalExpr e2
 
                 | Or ->
                     match! evalExpr e1 with
@@ -225,14 +227,15 @@ module Eval =
 
                 | In ->
                     let! v = evalExpr e1
+
                     match! evalExpr e2 with
                     | Value.List vs -> return Value.b (List.contains v vs)
                     | _ -> ()
             }
 
-    type Result =
-        | Success
-        | Failure of string
+    type Criterion =
+        | Met
+        | Unmet of string
         | Discretional of string
 
     let evalCondition =
@@ -240,7 +243,7 @@ module Eval =
         | Assertion { description = d; assertion = a } ->
             cont {
                 let! b = evalExpr a
-                return if Value.isTrue b then Success else Failure d
+                return if Value.isTrue b then Met else Unmet d
             }
         | Judgment { description = description } -> cont { return Discretional description }
 
@@ -248,7 +251,7 @@ module Eval =
         { discretionals: string list
           failures: string list }
 
-    let evalBenefit { requires = rqs } : Continuation.t<EligibilityConditions, _> =
+    let evalBenefit { requires = rqs } =
         let conditions = cont { return { discretionals = []; failures = [] } }
 
         let cons conds cond =
@@ -256,8 +259,8 @@ module Eval =
                 let! (conds: EligibilityConditions) = conds
 
                 match! evalCondition cond with
-                | Success -> return conds
-                | Failure descr ->
+                | Met -> return conds
+                | Unmet descr ->
                     return
                         { conds with
                             failures = descr :: conds.failures }
