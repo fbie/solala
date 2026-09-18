@@ -1,17 +1,23 @@
 namespace Solala
 
-module Type =
-    type TypeVar = { label: string; mutable parent: t }
+module Empty =
+    type t = Impossible of t
 
-    and t =
+module Type =
+    type 't TypeVar = { label: string; mutable parent: 't }
+
+    and 'var t =
         | Bool
         | Int
         | String
         | Date
-        | List of t
-        | Var of TypeVar
+        | List of 'var t
+        | Var of 'var * 'var t TypeVar
 
     exception RuntimeTypeError of string
+
+    type vtype = unit t
+    type ctype = Empty.t t
 
     let genTypeVar =
         let mutable i = 0L
@@ -20,31 +26,33 @@ module Type =
             let j = i
             i <- i + 1L
 
-            let rec tvar =
-                Var
+            let rec tvar = // Is its own parent.
+                Var(
+                    (),
                     { label = $"typevar-{j}"
                       parent = tvar }
+                )
 
             tvar
 
+    let find t =
+        let mutable depth = 0
+
+        let rec find =
+            function
+            | Var(_, tvar) ->
+                let t = find tvar.parent
+                depth <- depth + 1
+                tvar.parent <- t
+                t
+            | t -> t
+
+        find t, depth
+
     let union t1 t2 =
-        let find t =
-            let mutable depth = 0
-
-            let rec find =
-                function
-                | Var tvar ->
-                    let t = find tvar.parent
-                    depth <- depth + 1
-                    tvar.parent <- t
-                    t
-                | t -> t in
-
-            find t, depth in
-
         match t1, t2 with
         | t1, t2 when t1 = t2 -> t1
-        | Var tvar1, Var tvar2 ->
+        | Var(_, tvar1), Var(_, tvar2) ->
             let p1, d1 = find tvar1.parent
             let p2, d2 = find tvar2.parent
 
@@ -54,20 +62,25 @@ module Type =
             else
                 tvar1.parent <- p2
                 p2
-        | Var tvar, t
-        | t, Var tvar ->
+        | Var(_, tvar), t
+        | t, Var(_, tvar) ->
             tvar.parent <- t
             t
         | _ -> failwith "Type mismatch!"
 
-    let rec concreteType =
+    let rec concreteType: vtype -> ctype =
         function
-        | Var { parent = t } as tvar ->
+        | Var(_, { parent = t }) as tvar ->
             if obj.Equals(t, tvar) then
                 failwith "Could not infer concrete type"
 
+            let t, _ = find t
             concreteType t
-        | t -> t
+        | Bool -> Bool
+        | Int -> Int
+        | String -> String
+        | Date -> Date
+        | List t -> List(concreteType t)
 
 module Value =
     type t =
@@ -109,7 +122,8 @@ module Ast =
     define benefit some_name
       provides Kompensation af kørselsudgifter
       requires
-        is_guardian and permanent_handicap.
+        is_guardian and permanent_handicap; // ; composes,
+        age of child < 18. // . terminates.
 
 
 *)
@@ -123,11 +137,13 @@ module Ast =
         | And
         | Or
         | Equals
-        | LessThan
-        | In // x > y => y < x
+        | LessThan // x > y => y < x
+        | Before // x after y => y before x
+        | In
 
     type 't Expression =
         | Const of Value.t
+        | List of 't Expression list
         | Ref of 't Ref
         | ApplyUnary of Unary * 't Expression
         | ApplyBinary of Binary * 't Expression * 't Expression
@@ -135,7 +151,7 @@ module Ast =
     type Judgment = { description: string }
 
     type 't Assertion =
-        { assertion: 't Expression
+        { expression: 't Expression
           description: string }
 
     type 't Condition =
@@ -147,13 +163,62 @@ module Ast =
           provides: string
           requires: 't Condition list }
 
-// let typeRef types = function
-//     | Ref { typ = typ; path = path; }
+    let rec map f =
+        function
+        | Const v -> Const v
+        | Ref reference -> Ref(f reference)
+        | List es -> List(List.map (map f) es)
+        | ApplyUnary(op, e) -> ApplyUnary(op, map f e)
+        | ApplyBinary(op, e1, e2) -> ApplyBinary(op, map f e1, map f e2)
+
+    let rec typeExpression typ =
+        function
+        | Const v -> Const v
+        | List es -> List(List.map (typeExpression (Type.genTypeVar ())) es)
+        | Ref reference ->
+            Ref
+                { reference with
+                    typ = Type.union reference.typ typ }
+        | ApplyUnary(Not, e) -> ApplyUnary(Not, typeExpression Type.Bool e)
+        | ApplyBinary(op, e1, e2) ->
+            let t t =
+                ApplyBinary(op, typeExpression t e1, typeExpression t e2)
+
+            match op with
+            | Equals -> t (Type.genTypeVar ()) // Ad-hoc
+            | And
+            | Or -> t Type.Bool
+            | LessThan -> t Type.Int
+            | Before -> t Type.Date
+            | In ->
+                let tvar = Type.genTypeVar ()
+                ApplyBinary(In, typeExpression tvar e1, typeExpression (Type.List tvar) e2)
+
+
+    let rec typeBenefit (benefit: Type.vtype Benefit) : Type.ctype Benefit =
+        let typeCondition: Type.vtype Condition -> Type.ctype Condition =
+            function
+            | Judgment { description = d } -> Judgment { description = d } // ?
+            | Assertion assertion ->
+                let e =
+                    assertion.expression
+                    |> typeExpression (Type.genTypeVar ())
+                    |> map (fun r ->
+                        { path = r.path
+                          typ = Type.concreteType r.typ })
+
+                Assertion
+                    { description = assertion.description
+                      expression = e }
+
+        { description = benefit.description
+          provides = benefit.provides
+          requires = List.map typeCondition benefit.requires }
 
 module Continuation =
     type t<'a, 'b> =
         | Value of 'b
-        | Query of string list * Type.t * ('a -> t<'a, 'b>)
+        | Query of string list * Type.ctype * ('a -> t<'a, 'b>)
 
     let value<'a, 'b> (x: 'b) : t<'a, 'b> = Value x
 
@@ -183,13 +248,29 @@ module Eval =
     let query = Continuation.query
     let (>>=) = Continuation.(>>=)
 
-    let evalRef { typ = typ; path = path } : Continuation.t<Value.t, Value.t> = query (Type.concreteType typ) path
+    let evalRef { typ = typ; path = path } : Continuation.t<Value.t, Value.t> = query typ path
 
     let rec evalExpr: _ Expression -> _ =
         function
         | Ref reference -> evalRef reference
 
         | Const value -> cont { return value }
+
+        | List es ->
+            cont {
+                let! vs =
+                    List.foldBack
+                        (fun e vs ->
+                            cont {
+                                let! v = evalExpr e
+                                let! vs = vs
+                                return v :: vs
+                            })
+                        es
+                        (Continuation.value []: Continuation.t<_, Value.t list>)
+
+                return Value.List vs
+            }
 
         | ApplyUnary(Not, e) ->
             cont {
@@ -221,8 +302,15 @@ module Eval =
                     let! v2 = evalExpr e2
 
                     match v1, v2 with
-                    | Value.Date d1, Value.Date d2 -> return Value.b (d1 < d2)
                     | Value.Int i1, Value.Int i2 -> return Value.b (i1 < i2)
+                    | _ -> ()
+
+                | Before ->
+                    let! v1 = evalExpr e1
+                    let! v2 = evalExpr e2
+
+                    match v1, v2 with
+                    | Value.Date d1, Value.Date d2 -> return Value.b (d1 < d2)
                     | _ -> ()
 
                 | In ->
@@ -240,9 +328,9 @@ module Eval =
 
     let evalCondition =
         function
-        | Assertion { description = d; assertion = a } ->
+        | Assertion { description = d; expression = e } ->
             cont {
-                let! b = evalExpr a
+                let! b = evalExpr e
                 return if Value.isTrue b then Met else Unmet d
             }
         | Judgment { description = description } -> cont { return Discretional description }
