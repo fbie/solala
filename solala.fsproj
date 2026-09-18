@@ -6,11 +6,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="Type.fs" />
+    <Compile Include="Value.fs" />
+    <Compile Include="Continuation.fs" />
     <Compile Include="Ast.fs" />
-    <!-- <Compile Include="Fragment.fs" /> -->
-    <!-- <Compile Include="Sugar.fsi" /> -->
-    <!-- <Compile Include="Sugar.fs" /> -->
-    <!-- <Compile Include="Program.fs" /> -->
+    <Compile Include="Eval.fs" />
+    <Compile Include="Tui.fs" />
   </ItemGroup>
 
 </Project>
