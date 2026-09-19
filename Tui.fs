@@ -16,11 +16,11 @@ module Tui =
                 with :? FormatException as e ->
                     Error e.Message
 
-        let rec retry f x =
+        let rec retry handleError f x =
             match f x with
-            | Error(e: string) ->
-                printf $"Error: {e}"
-                retry f x
+            | Error e ->
+                handleError e
+                retry handleError f x
             | Ok x -> x
 
         let query (path: string list) (t: string) () =
@@ -46,7 +46,7 @@ module Tui =
                     loop [] >> Value.List >> Option.Some >> Ok
                 | _ -> failwith "Cannot happen"
 
-            retry query ()
+            retry (printf "Error when parsing input: %s") query ()
 
         let lookup (env: env) path typ =
             match Map.tryFind path env with
