@@ -6,12 +6,11 @@ module Eval =
     let cont = Continuation.cont
     let query = Continuation.query
     let (>>=) = Continuation.(>>=)
-
-    let evalRef { typ = typ; path = path } : Continuation.t<Value.t, Value.t> = query typ path
+    type 'a query = Continuation.t<Value.t, 'a, Type.ctype Ref>
 
     let rec evalExpr: _ Expression -> _ =
         function
-        | Ref reference -> evalRef reference
+        | Ref reference -> query reference
 
         | Const value -> cont { return value }
 
@@ -26,7 +25,7 @@ module Eval =
                                 return v :: vs
                             })
                         es
-                        (Continuation.value []: Continuation.t<_, Value.t list>)
+                        (Continuation.value []: Value.t list query)
 
                 return Value.List vs
             }

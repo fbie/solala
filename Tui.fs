@@ -28,7 +28,7 @@ module Tui =
             printf $"Please enter {t} for {label} and press enter:"
             Console.ReadLine()
 
-        let rec ask path typ=
+        let rec ask path typ = // Takes not a Ref but path and type separately - lists only ask for their element type!
             let query label k = query path label >> parse k
 
             let query =
@@ -48,19 +48,19 @@ module Tui =
 
             retry (printf "Error when parsing input: %s") query ()
 
-        let lookup (env: env) path typ =
-            match Map.tryFind path env with
+        let lookup (env: env) (r : Type.ctype Ref) =
+            match Map.tryFind r.path env with
             | Some v -> v, env // Hope the type matches or check?
             | None ->
-                let v = ask path typ |> Option.get
-                let env = Map.add path v env
+                let v = ask r.path r.typ |> Option.get
+                let env = Map.add r.path v env
                 v, env
 
         let rec step env k =
             match k with
             | Continuation.Value x -> x
-            | Continuation.Query(path, typ, k) ->
-                let v, env = lookup env path typ
+            | Continuation.Query(r, k) ->
+                let v, env = lookup env r
                 step env (k v)
 
         step Map.empty (Eval.evalBenefit benefit)

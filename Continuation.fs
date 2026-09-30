@@ -1,26 +1,29 @@
 namespace Solala
 
 module Continuation =
-    type t<'a, 'b> =
+    type t<'a, 'b, 'c> =
         | Value of 'b
-        | Query of string list * Type.ctype * ('a -> t<'a, 'b>)
+        | Query of 'c * ('a -> t<'a, 'b, 'c>)
 
-    let value<'a, 'b> (x: 'b) : t<'a, 'b> = Value x
+    let value<'a, 'b, 'c> (x: 'b) : t<'a, 'b, 'c> = Value x
+    let query<'a, 'c> (q : 'c)    : t<'a, 'a, 'c> = Query(q, Value)
 
-    let query<'a> typ path =
-        Query(path, typ, fun (x: 'a) -> Value x)
+    let rec map f =
+        function
+        | Value x -> Value (f x)
+        | Query (q, k) -> Query (q, k >> map f)
 
-    let rec bind (f: 'd -> t<'a, 'b>) : t<'a, 'd> -> t<'a, 'b> =
+    let rec bind (f: 'd -> t<'a, 'b, 'q>) : t<'a, 'd, 'q> -> t<'a, 'b, 'q> =
         function
         | Value x -> f x
-        | Query(s, typ, k) -> Query(s, typ, fun x -> bind f (k x))
+        | Query(q, k) -> Query(q, k >> bind f)
 
-    let inline (>>=) m f = bind f m
+    let (>>=) m f = bind f m
 
     type ContinuationBuilder private () =
         member _.Bind(m, f) = bind f m
-        member _.Return(x: 'a) : t<_, 'a> = Value x
-        member _.ReturnFrom(x: t<_, _>) : t<_, _> = x
+        member _.Return(x: 'a) : t<_, 'a, _> = Value x
+        member _.ReturnFrom(x: t<_, _, _>) : t<_, _, _> = x
         member _.Zero() = Value Value._false
         static member val Instance = ContinuationBuilder()
 
