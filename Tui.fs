@@ -6,6 +6,8 @@ module Tui =
 
     type env = Map<string list, Value.t>
 
+    let refute<'a> : 'a = failwith "Refuted case"
+
     let run (env: env) (benefit: Type.ctype Ast.Benefit) =
         let parse f (s: string) =
             if String.IsNullOrEmpty s then
@@ -44,7 +46,7 @@ module Tui =
                         | Some v -> loop (v :: vs) ()
 
                     loop [] >> Value.List >> Option.Some >> Ok
-                | _ -> failwith "Cannot happen"
+                | _ -> refute
 
             retry (printfn "ERROR: %s") query ()
 
