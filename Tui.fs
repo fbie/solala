@@ -25,7 +25,7 @@ module Tui =
 
         let query (path: string list) (t: string) () =
             let label = String.concat " of " path
-            printf $"Please enter {t} for {label} and press enter:"
+            printf $"Please enter {t} for {label} and press enter: "
             Console.ReadLine()
 
         let rec ask path typ = // Takes not a Ref but path and type separately - lists only ask for their element type!
@@ -36,7 +36,7 @@ module Tui =
                 | Type.Bool -> query "true or false" (bool.Parse >> Value.b)
                 | Type.Int -> query "a number" (int >> Value.Int)
                 | Type.Date -> query "a date" (DateOnly.Parse >> Value.Date)
-                | Type.String -> query "text" Value.String
+                | Type.String -> query "text" (fun s -> s.Replace ('\n', char 0) |> Value.String)
                 | Type.List t ->
                     let rec loop vs () =
                         match ask path t with
@@ -46,7 +46,7 @@ module Tui =
                     loop [] >> Value.List >> Option.Some >> Ok
                 | _ -> failwith "Cannot happen"
 
-            retry (printf "Error when parsing input: %s") query ()
+            retry (printfn "ERROR: %s") query ()
 
         let lookup (env: env) (r : Type.ctype Ref) =
             match Map.tryFind r.path env with

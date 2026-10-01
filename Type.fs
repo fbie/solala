@@ -21,19 +21,10 @@ module Type =
 
     let genTypeVar =
         let mutable i = 0L
-
         fun () ->
             let j = i
             i <- i + 1L
-
-            let tvar = // Is its own parent.
-                Var(
-                    (),
-                    { label = $"typevar-{j}"
-                      parent = None }
-                )
-
-            tvar
+            Var((), { label = $"typevar-{j}"; parent = None })
 
     let find t =
         let mutable depth = 0
@@ -51,6 +42,17 @@ module Type =
             | t -> t
 
         find t, depth
+
+    let rec toString t =
+        find t
+        |> fst
+        |> function
+            | Bool -> "boolean"
+            | Int -> "number"
+            | String -> "string"
+            | Date -> "date"
+            | List t -> $"list of {toString t}"
+            | Var (_, tvar) -> tvar.label
 
     let rec union t1 t2 =
         let t1, d1 = find t1
@@ -70,7 +72,7 @@ module Type =
             tvar.parent <- Some t
             t
         | List t1, List t2 -> List (union t1 t2)
-        | _ -> failwith "Type mismatch!"
+        | _ -> failwith $"Type mismatch, got {t1} but expected {t2}"
 
     let rec concreteType t =
         match find t |> fst with
