@@ -60,7 +60,7 @@ module Law =
                 [
                     (* Stk. 1 *)
                     ASSERT "et barn under 18 år"(LESS_THAN (OF "alder" (SYMBOL "barnet")) (N 18))
-                    ASSERT "forsørgelse i hjemmet" (EQUALS (S "i hjemmet") (OF "bopæl" (SYMBOL "barnet")))
+                    ASSERT "forsørgelse i hjemmet" (EQUALS (S "hjemme") (OF "bopæl" (SYMBOL "barnet")))
                     ASSERT "varigt funktionsnedsættelse" (IS (OF "varig" (OF "funktionsnedsættelse" (SYMBOL "barnet"))))
                     ASSERT "fysisk eller psykisk" (IN (OF "funktionsnedsættelse" (SYMBOL "barnet")) (LIST [S "fysisk"; S "psykisk"]))
                     JUDGE "Merudgifterne er en konsekvens af den nedsatte funktionsevne"
@@ -69,7 +69,7 @@ module Law =
                     (* Stk. 2. Udmålingen af ydelsen sker på grundlag af de sandsynliggjorte merudgifter for det enkelte barn, f.eks. merudgifter til individuel befordring og fritidsaktiviteter. *)
 
                     (* Stk. 3. Beløbet til dækning af de nødvendige merudgifter kan ydes, når de skønnede merudgifter udgør mindst 5.207 kr. pr. år (2022-niveau). Ydelsen fastsættes ud fra de skønnede merudgifter pr. måned og afrundes til nærmeste kronebeløb, der er deleligt med 100. *)
-                    ASSERT "skønnede merudgifter udgør mindst 5.207 kr. pr. år" (EQUALS (N 5207) (OF "beløbet" (SYMBOL "årlige merudgifter")))
+                    ASSERT "skønnede merudgifter udgør mindst 5.207 kr. pr. år" (LESS_THAN_EQUAL (N 5207) (OF "beløbet" (SYMBOL "årlige merudgifter")))
 
                     (* Stk. 4. Hjælpen efter stk. 1 er betinget af, at kommunalbestyrelsens anvisninger med hensyn til pasning m.v. følges. *)
 
