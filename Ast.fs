@@ -60,10 +60,30 @@ module Ast =
         | ApplyUnary(op, e) -> ApplyUnary(op, map f e)
         | ApplyBinary(op, e1, e2) -> ApplyBinary(op, map f e1, map f e2)
 
+    let rec typeConst typ = function
+        | Value.Bool _ -> Type.union typ Type.Bool
+        | Value.Int _ -> Type.union typ Type.Int
+        | Value.Date _ -> Type.union typ Type.Date
+        | Value.String _ -> Type.union typ Type.String
+        | Value.List xs ->
+            List.fold typeConst (Type.genTypeVar ()) xs
+            |> Type.union typ
+
     let rec typeExpression typ =
         function
-        | Const v -> Const v
-        | List es -> List(List.map (typeExpression (Type.genTypeVar ())) es)
+        | Const v ->
+            typeConst typ v |> ignore
+            Const v
+
+        | List es ->
+          match typ with
+            | Type.List typ -> List(List.map (typeExpression typ) es)
+            | typ ->
+                let elemType = Type.genTypeVar ()
+                let e = List(List.map (typeExpression elemType) es)
+                Type.union typ (Type.List elemType) |> ignore
+                e
+
         | Ref reference ->
             Ref
                 { reference with
@@ -75,8 +95,7 @@ module Ast =
 
             match op with
             | Equals -> t (Type.genTypeVar ()) // Ad-hoc
-            | And
-            | Or -> t Type.Bool
+            | And | Or -> t Type.Bool
             | LessThan -> t Type.Int
             | Before -> t Type.Date
             | In ->

@@ -24,7 +24,7 @@ module Tui =
             | Ok x -> x
 
         let query (path: string list) (t: string) () =
-            let label = String.concat "of" path
+            let label = String.concat " of " path
             printf $"Please enter {t} for {label} and press enter:"
             Console.ReadLine()
 
