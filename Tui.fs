@@ -50,13 +50,15 @@ module Tui =
 
             retry (printfn "FEJL: %s") query ()
 
-        let lookup (env: env) (r : Type.ctype Ref) =
+        let rec lookup (env: env) (r : Type.ctype Ref) =
             match Map.tryFind r.path env with
             | Some v -> v, env // Hope the type matches or check?
             | None ->
-                let v = ask r.path r.typ |> Option.get
-                let env = Map.add r.path v env
-                v, env
+                match ask r.path r.typ with
+                    | Some v ->
+                        let env = Map.add r.path v env
+                        v, env
+                    | None -> lookup env r
 
         let rec step env k =
             match k with
