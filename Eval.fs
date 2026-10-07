@@ -14,6 +14,8 @@ module Eval =
 
         | Const value -> cont { return value }
 
+        | Ctor ctor -> cont { return Value.String ctor }
+
         | List es ->
             cont {
                 let! vs =

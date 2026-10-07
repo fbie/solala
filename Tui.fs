@@ -8,37 +8,47 @@ module Tui =
 
     let refute<'a> : 'a = failwith "Refuted case"
 
-    let run (env: env) (benefit: Type.ctype Ast.Benefit) =
-        let parse f (s: string) =
-            if String.IsNullOrEmpty s then
-                Ok None
-            else
-                try
-                    Ok(Some(f s))
-                with :? FormatException as e ->
-                    Error e.Message
+    let parse f (s: string) =
+        if String.IsNullOrEmpty s then
+            Ok None
+        else
+            try
+                Ok(f s)
+            with :? FormatException as e ->
+                Error e.Message
 
-        let rec retry handleError f x =
-            match f x with
-            | Error e ->
-                handleError e
-                retry handleError f x
-            | Ok x -> x
+    let rec retry handleError f x =
+        match f x with
+        | Error e ->
+            handleError e
+            retry handleError f x
+        | Ok x -> x
 
-        let query (path: string list) (t: string) () =
-            let label = String.concat " af " path
-            printf $"Indtast {t} for {label} og tryk enter: "
-            Console.ReadLine()
+    let query (path: string list) (t: string) () =
+        let label = path |> List.rev |> String.concat "s "
+        printf $"Indtast {t} for {label} og tryk enter: "
+        Console.ReadLine()
 
-        let rec ask path typ = // Takes not a Ref but path and type separately - lists only ask for their element type!
+    let tryParseWith (tryParse : string -> bool * _) = tryParse >> function
+        | true, v -> Some v
+        | false, _   -> None
+
+    let runBenefit (env: env) (benefit: Type.ctype Ast.Benefit) =
+        let inline (=>>) m f x = Option.map f (m x)
+
+        let rec ask path (typ : Type.ctype) = // Takes not a Ref but path and type separately - lists only ask for their element type!
             let query label k = query path label >> parse k
 
             let query =
                 match typ with
-                | Type.Bool -> query "'ja' eller 'nej'" (function "ja" -> Value._true | _ -> Value._false)
-                | Type.Int -> query "et heltal" (int >> Value.Int)
-                | Type.Date -> query "et dato" (DateOnly.Parse >> Value.Date)
-                | Type.String -> query "text" (fun s -> s.Replace ('\n', char 0) |> Value.String)
+                | Type.Bool ->
+                    query "'ja' eller 'nej'" (function "ja" -> Some Value._true | "nej" -> Some Value._false | _ -> None)
+                | Type.Int ->
+                    query "et heltal" (tryParseWith Int32.TryParse =>> Value.Int)
+                | Type.Date ->
+                    query "et dato" (tryParseWith DateOnly.TryParse =>> Value.Date)
+                | Type.String ->
+                    query "text" (fun s -> s.Replace ('\n', char 0) |> Value.String |> Some)
                 | Type.List t ->
                     let rec loop vs () =
                         match ask path t with
@@ -46,7 +56,12 @@ module Tui =
                         | Some v -> loop (v :: vs) ()
 
                     loop [] >> Value.List >> Option.Some >> Ok
-                | _ -> refute
+                | Type.EnumType t ->
+                    let parse s = if List.contains s t.ctors then Some (Value.String s) else None // Enums are just strings at run-time.
+                    let ctors = List.map (sprintf "'%s'") t.ctors |> String.concat ", "
+                    query $"en af {ctors}" parse
+
+                | Type.Var (_, _) -> refute
 
             retry (printfn "FEJL: %s") query ()
 

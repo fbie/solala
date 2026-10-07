@@ -4,6 +4,8 @@ module Empty =
     type t = Impossible of t
 
 module Type =
+    type EnumType = { name : string; ctors : string list}
+
     type 't TypeVar = { label: string; mutable parent: 't option }
 
     and 'var t =
@@ -12,6 +14,7 @@ module Type =
         | String
         | Date
         | List of 'var t
+        | EnumType of EnumType
         | Var of 'var * 'var t TypeVar
 
     exception RuntimeTypeError of string
@@ -52,6 +55,7 @@ module Type =
             | String -> "string"
             | Date -> "date"
             | List t -> $"list of {toString t}"
+            | EnumType t -> t.name
             | Var (_, tvar) -> tvar.label
 
     let rec union t1 t2 =
@@ -81,4 +85,5 @@ module Type =
         | Int -> Int
         | String -> String
         | Date -> Date
+        | EnumType t -> EnumType t
         | List t -> List (concreteType t)
